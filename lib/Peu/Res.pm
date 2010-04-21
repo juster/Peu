@@ -15,7 +15,7 @@ sub new
     if ( @_ == 1 ) {
         $body = shift;
         $status = 200;
-        $headers = { 'Content-Type' => 'text/html' };
+        $headers = [ 'Content-Type' => 'text/html' ];
     }
     # TODO: 2 arguments?
     elsif ( @_ == 3 ) {

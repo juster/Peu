@@ -32,8 +32,11 @@ sub import
 
             # Catch errors and use error handlers later...
             my @response = eval { $usercode_ref->() };
-            return [ 500, 'text/plain', '500 Internal Server Error' ]
-                if $EVAL_ERROR;
+#             return [ 500,
+#                      [ 'Content-Type' => 'text/html' ],
+#                      [ '500 Internal Server Error' ],
+#                     ] 
+            die if $EVAL_ERROR;
 
             if ( eval { $response[0]->isa( 'Peu::Res' ) } ) {
                 return $response[0]->as_aref;
@@ -77,11 +80,11 @@ sub import
                 my $req_ref = shift;
 
                 require Peu::Req;
-                *{ "${caller_pkg}::Req" } = Peu::Req->new( $req_ref );
+                *{ "${caller_pkg}::Req" } = \Peu::Req->new( $req_ref );
 
                 my $match_ref = $router->match( $req_ref )
                     or return [ 404,
-                                [ 'ContentType' => 'text/html' ],
+                                [ 'Content-Type' => 'text/html' ],
                                 [ '404 Not found' ],
                                ];
 
