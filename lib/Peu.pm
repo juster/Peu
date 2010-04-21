@@ -6,7 +6,6 @@ use strict;
 our $VERSION = '0.01';
 
 use Router::Simple;
-use Peu::Request;
 use English qw(-no_match_vars);
 
 sub import
@@ -26,13 +25,23 @@ sub import
             $_->() foreach @{ delete $match_ref->{ '_befores' } };
 
             # Store route parameters...
-            *{ "${caller_pkg}::Prm" } = $match_ref;
+            {
+                no strict 'refs';
+                *{ "${caller_pkg}::Prm" } = $match_ref;
+            }
 
             # Catch errors and use error handlers later...
             my @response = eval { $usercode_ref->() };
             return [ 500, 'text/plain', '500 Internal Server Error' ]
                 if $EVAL_ERROR;
-            return Peu::Response->new( @response );
+
+            if ( eval { $response[0]->isa( 'Peu::Res' ) } ) {
+                return $response[0]->as_aref;
+            }
+
+            require Peu::Res;
+            my $res = Peu::Res->new( @response );
+            return $res->as_aref;
         }
     };
 
@@ -66,6 +75,8 @@ sub import
         *{ "${caller_pkg}::to_app" } = sub {
             sub {
                 my $req_ref = shift;
+
+                require Peu::Req;
                 *{ "${caller_pkg}::Req" } = Peu::Req->new( $req_ref );
 
                 my $match_ref = $router->match( $req_ref )
@@ -74,7 +85,7 @@ sub import
                                 [ '404 Not found' ],
                                ];
 
-                ( delete $match_ref->{ '_code' } )->();
+                ( delete $match_ref->{ '_code' } )->( $match_ref );
             }
         };
 

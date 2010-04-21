@@ -1,10 +1,10 @@
-package Peu::Request;
+package Peu::Req;
 
 use warnings;
 use strict;
-use base qw(Plack::Request);
+use Plack::Request;
 
-
+our @ISA = qw(Plack::Request);
 
 1;
 
