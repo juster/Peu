@@ -6,8 +6,9 @@ use strict;
 our $VERSION = '0.01';
 
 use Router::Simple;
-use English qw(-no_match_vars);
 use Peu::Resp;
+use English    qw(-no_match_vars);
+use Carp       qw();
 
 sub import
 {
@@ -42,7 +43,7 @@ sub import
             $liason->( 'Prm' => $match_ref );
             
             # Catch errors and use error handlers later...
-            my @response = eval { $usercode_ref->() };
+            my $body = eval { $usercode_ref->() };
 
 #             return [ 500,
 #                      [ 'Content-Type' => 'text/html' ],
@@ -51,11 +52,8 @@ sub import
 
             die if $EVAL_ERROR;
             
-            my $res = $response[0];
-            unless ( eval { $res->isa( 'Peu::Res' ) } ) {
-                $res = Peu::Res->new( @response );
-            }
-
+            $res = *{ $liason->( 'Res' ) }{SCALAR};
+            $res->body( $body ) if $body;
             return $res->as_aref;
         }
     };
@@ -83,29 +81,61 @@ sub import
 
     $def_method_keyword->( $_ ) foreach qw/ any get post delete update /;
 
+    my $response = Peu::Res->new();
+    $response->status( 200 );
+    $response->content_type( 'text/html' );
+
     # Declare package variables in the caller package..
-    $liason->( 'Res' => Peu::Res->new() );
-    $liason->( 'Req' => do { my $anon_scalar; \$anon_scalar } );
+    $liason->( 'Res' => \$response );
     $liason->( 'Rtr' => \$router );
+    $liason->( 'Req' => do { my $anon_scalar; \$anon_scalar } );
     $liason->( 'Prm' => {} );
 
+    my $psgi_app = sub {
+        my $req_ref = shift;
+
+        require Peu::Req;
+        $liason->( 'Req', \Peu::Req->new( $req_ref ) );
+
+        my $match_ref = $router->match( $req_ref )
+            or return [ 404,
+                        [ 'Content-Type' => 'text/html' ],
+                        [ '404 Not found' ],
+                       ];
+
+        ( delete $match_ref->{ '_code' } )->( $match_ref );
+    }
+
     # to_app is called by the .psgi file and returns a coderef of the app
-    $liason->( 'to_app' => sub {
-                   return sub {
-                       my $req_ref = shift;
+    $liason->( 'to_app' => sub { $psgi_app } );
 
-                       require Peu::Req;
-                       $liason->( 'Req', \Peu::Req->new( $req_ref ) );
+    # The "mid" keyword enables Plack middleware.
+    my $mid_keyword = sub {
+        my $name = ucfirst shift;
 
-                       my $match_ref = $router->match( $req_ref )
-                           or return [ 404,
-                                       [ 'Content-Type' => 'text/html' ],
-                                       [ '404 Not found' ],
-                                      ];
+        my $class_name = "Plack::Middlware::$name";
+        local $Carp::Internal{ (__PACKAGE__) } = 1;
+        $app = $class_name->wrap( $app, @_ );
+    };
+    $liason->( 'mid' => $mid_keyword );
 
-                       ( delete $match_ref->{ '_code' } )->( $match_ref );
-                   }
-               });
+    my %config_keywords = ( 'static' => sub { $mid_keyword->( 'static' ) } );
+    $liason->( 'cfg' => sub {
+                   my $name = shift;
+
+                   Carp::croak "$name is not a valid config key"
+                       unless exists $config_keywords{ $name };
+
+                   my $cfgset_ref = $config_keywords{ $name };
+                   Carp::croak "$name was already set and cannot be changed"
+                       unless defined $cfgset_ref;
+
+                   $cfgset_ref->( @_ );
+                   return;
+               },
+              );
+
+    return;
 }
 
 1; # End of Peu
@@ -126,6 +156,12 @@ makerPeu - Un peu web "framework".
 
   any "/api/{version}/{arg}" => {
     "Hello, I'm Peu!  You want version $Prm{version}?  $Prm{arg} you!"
+  }
+  
+  post "/api/1.3" => {
+    $Res->code( 500 );
+    $Res->content-type( 'text/plain' );
+    '500 Error';
   }
 
 =head1 DESCRIPTION
@@ -156,6 +192,8 @@ A few package variables are created into the importer's namespace.
 This is so they can be used inside any of the router response blocks.
 
 =over 4
+
+=item $Res - A Peu::Res (same as L<Plack::Response>) object.
 
 =item $Req - A Peu::Req (same as L<Plack::Request>) object.
 
