@@ -15,9 +15,7 @@ sub import
     my $caller_pkg = caller(0);
     my $router     = Router::Simple->new();
 
-    # These get added to later and are checked when a match occurs.
-    my @before_filters;
-    my @error_handlers;
+    local $Carp::Internal{ (__PACKAGE__) } = 1;
 
     # Get or set globs in the caller package...
     my $liason = sub {
@@ -43,7 +41,7 @@ sub import
             $liason->( 'Prm' => $match_ref );
             
             # Catch errors and use error handlers later...
-            my $body = eval { $usercode_ref->() };
+            my $result = eval { $usercode_ref->() };
 
 #             return [ 500,
 #                      [ 'Content-Type' => 'text/html' ],
@@ -51,11 +49,30 @@ sub import
 #                     ] 
 
             die if $EVAL_ERROR;
+
+            # Acknowledge raw PSGI responses as well...
+            return $result if ref $result eq 'ARRAY';
             
             my $res = *{ $liason->( 'Res' ) }{SCALAR};
-            $res->body( $body ) if $body;
+            $res->body( $result ) if $result;
             return $res->as_aref;
         }
+    };
+    
+    # These get added to later and are checked when a match occurs.
+    my @before_filters;
+    my @error_handlers;
+
+    my $make_match_data = sub {
+        my $code_ref = shift;
+
+        Carp::croak( 'Invalid argument: must be a code reference' )
+            unless ref $code_ref eq 'CODE';
+        
+        return { '_befores' => [ @before_filters ],
+                 '_errors'  => [ @error_handlers ],
+                 '_code'    => $resp_curry->( $code_ref ),
+                };
     };
 
     # Sort of copied from Router::Simple::Cookbook
@@ -69,10 +86,7 @@ sub import
             
                        $router->connect
                            ( $route,
-                             { '_befores' => [ @before_filters ],
-                               '_errors'  => [ @error_handlers ],
-                               '_code'    => $resp_curry->($code_ref),
-                              },
+                             $make_match_data->( $code_ref ),
                              ( $http_method eq 'any' ? ()
                                : { method => uc $http_method } ),
                             );
@@ -81,7 +95,32 @@ sub import
 
     $def_method_keyword->( $_ ) foreach qw/ ANY GET DEL POST UPDATE /;
 
-    # Create a default response...
+    # TOP handlers match when there is no path_info or it is just "/"
+    # DEFAULT handlers match when nothing else does...
+    my ($top_handler, $default_handler);
+
+    $default_handler =
+        $make_match_data->( sub { [ 404,
+                                    [ 'Content-Type' => 'text/html' ],
+                                    [ '404 Not found' ],
+                                   ];
+                              } );
+
+    $liason->( 'TOP' => sub (&) {
+                   $top_handler = $make_match_data->( shift );
+                   return;
+               });
+
+    $liason->( 'SLURP' => sub {
+                   my $path = @_;
+                   
+                   local $/;
+                   open my $file, q{<}, $path
+                       or Carp::croak( "open on $path: $!" );
+                   return <$file>;
+               });
+
+    # Create a default response object...
     my $response = Peu::Res->new();
     $response->status( 200 );
     $response->content_type( 'text/html' );
@@ -98,11 +137,11 @@ sub import
         require Peu::Req;
         $liason->( 'Req', \Peu::Req->new( $req_ref ) );
 
-        my $match_ref = $router->match( $req_ref )
-            or return [ 404,
-                        [ 'Content-Type' => 'text/html' ],
-                        [ '404 Not found' ],
-                       ];
+        my $match_ref;
+        $match_ref = $top_handler
+            if eval { $req_ref->{PATH_INFO} eq q{} };
+
+        $match_ref ||= $router->match( $req_ref ) || $default_handler;
 
         ( delete $match_ref->{ '_code' } )->( $match_ref );
     };
@@ -115,7 +154,6 @@ sub import
         my $name = ucfirst shift;
 
         my $class_name = "Plack::Middlware::$name";
-        local $Carp::Internal{ (__PACKAGE__) } = 1;
         $psgi_app = $class_name->wrap( $psgi_app, @_ );
     };
     $liason->( 'MID' => $mid_keyword );
