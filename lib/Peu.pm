@@ -98,7 +98,7 @@ sub import
 
     # TOP handlers match when there is no path_info or it is just "/"
     # DEFAULT handlers match when nothing else does...
-    my ($top_handler, $default_handler);
+    my $default_handler;
 
     $default_handler =
         $make_match_data->( sub { [ 404,
@@ -106,13 +106,6 @@ sub import
                                     [ '404 Not found' ],
                                    ];
                               } );
-
-    $liason->( 'TOP' => sub (&) {
-                   my $code_ref = shift;
-                   $top_handler = $make_match_data->( $code_ref );
-                   return;
-               });
-
 
     $liason->( 'SLURP' => sub {
                    my ($path) = @_;
@@ -138,16 +131,7 @@ sub import
         my $req_ref = shift;
         $liason->( 'Req', \Peu::Req->new( $req_ref ) );
 
-        my $match_ref;
-        $match_ref = $top_handler if ( !defined $req_ref->{PATH_INFO}
-                                       || $req_ref->{PATH_INFO} =~ m{^/?$} );
-
-        $match_ref ||= $router->match( $req_ref );
-
-        use Data::Dumper;
-        die $router->as_string . "\nCould not find a match for "
-            . Dumper( $req_ref ) unless $match_ref;
-
+        my $match_ref = $router->match( $req_ref );
         $match_ref ||= $default_handler;
 
         my $responder_ref = delete $match_ref->{ '_code' };
