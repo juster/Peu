@@ -6,7 +6,7 @@ use strict;
 our $VERSION = '0.01';
 
 use Router::Simple;
-use Peu::Resp;
+use Peu::Res;
 use English    qw(-no_match_vars);
 use Carp       qw();
 
@@ -52,7 +52,7 @@ sub import
 
             die if $EVAL_ERROR;
             
-            $res = *{ $liason->( 'Res' ) }{SCALAR};
+            my $res = *{ $liason->( 'Res' ) }{SCALAR};
             $res->body( $body ) if $body;
             return $res->as_aref;
         }
@@ -105,7 +105,7 @@ sub import
                        ];
 
         ( delete $match_ref->{ '_code' } )->( $match_ref );
-    }
+    };
 
     # to_app is called by the .psgi file and returns a coderef of the app
     $liason->( 'to_app' => sub { $psgi_app } );
@@ -116,7 +116,7 @@ sub import
 
         my $class_name = "Plack::Middlware::$name";
         local $Carp::Internal{ (__PACKAGE__) } = 1;
-        $app = $class_name->wrap( $app, @_ );
+        $psgi_app = $class_name->wrap( $psgi_app, @_ );
     };
     $liason->( 'MID' => $mid_keyword );
 
@@ -212,6 +212,10 @@ using L<Dancer>.
 =head1 SEE ALSO
 
 These are also the dependencies: L<Router::Simple> and L<Plack>.
+
+=head1 AUTHOR
+
+Justin Davis C<< <juster at cpan dot org> >>
 
 =head1 LICENSE AND COPYRIGHT
 
