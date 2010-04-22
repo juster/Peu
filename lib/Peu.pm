@@ -158,7 +158,7 @@ sub import
     };
     $liason->( 'MID' => $mid_keyword );
 
-    my %config_keywords = ( 'static' => sub { $mid_keyword->( 'static' ) } );
+    my %config_keywords = ( );
     $liason->( 'CFG' => sub {
                    my $name = shift;
 
@@ -170,6 +170,7 @@ sub import
                        unless defined $cfgset_ref;
 
                    $cfgset_ref->( @_ );
+                   undef $config_keywords{ $name };
                    return;
                },
               );
