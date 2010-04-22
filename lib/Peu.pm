@@ -6,16 +6,17 @@ use strict;
 our $VERSION = '0.01';
 
 use Router::Simple;
+use Peu::Req;
 use Peu::Res;
 use English    qw(-no_match_vars);
 use Carp       qw();
 
 sub import
 {
-    my $caller_pkg = caller(0);
+    my $caller_pkg = caller 0;
     my $router     = Router::Simple->new();
 
-    local $Carp::Internal{ (__PACKAGE__) } = 1;
+#     local $Carp::Internal{ (__PACKAGE__) } = 1;
 
     # Get or set globs in the caller package...
     my $liason = sub {
@@ -54,8 +55,8 @@ sub import
             return $result if ref $result eq 'ARRAY';
             
             my $res = *{ $liason->( 'Res' ) }{SCALAR};
-            $res->body( $result ) if $result;
-            return $res->as_aref;
+            ${$res}->body( $result ) if $result;
+            return ${$res}->as_aref;
         }
     };
     
@@ -78,7 +79,7 @@ sub import
     # Sort of copied from Router::Simple::Cookbook
     # Define an HTTP_METHOD keyword...
     my $def_method_keyword = sub {
-        my ($http_method) = @_;
+        my $http_method = uc shift;
 
         $liason->( $http_method, sub {
                        my $route    = shift;
@@ -87,8 +88,8 @@ sub import
                        $router->connect
                            ( $route,
                              $make_match_data->( $code_ref ),
-                             ( $http_method eq 'any' ? ()
-                               : { method => uc $http_method } ),
+                             ( $http_method eq 'ANY' ? ()
+                               : { method => $http_method } ),
                             );
                    });
     };
@@ -107,12 +108,14 @@ sub import
                               } );
 
     $liason->( 'TOP' => sub (&) {
-                   $top_handler = $make_match_data->( shift );
+                   my $code_ref = shift;
+                   $top_handler = $make_match_data->( $code_ref );
                    return;
                });
 
+
     $liason->( 'SLURP' => sub {
-                   my $path = @_;
+                   my ($path) = @_;
                    
                    local $/;
                    open my $file, q{<}, $path
@@ -133,17 +136,22 @@ sub import
 
     my $psgi_app = sub {
         my $req_ref = shift;
-
-        require Peu::Req;
         $liason->( 'Req', \Peu::Req->new( $req_ref ) );
 
         my $match_ref;
-        $match_ref = $top_handler
-            if eval { $req_ref->{PATH_INFO} eq q{} };
+        $match_ref = $top_handler if ( !defined $req_ref->{PATH_INFO}
+                                       || $req_ref->{PATH_INFO} =~ m{^/?$} );
 
-        $match_ref ||= $router->match( $req_ref ) || $default_handler;
+        $match_ref ||= $router->match( $req_ref );
 
-        ( delete $match_ref->{ '_code' } )->( $match_ref );
+        use Data::Dumper;
+        die $router->as_string . "\nCould not find a match for "
+            . Dumper( $req_ref ) unless $match_ref;
+
+        $match_ref ||= $default_handler;
+
+        my $responder_ref = delete $match_ref->{ '_code' };
+        $responder_ref->( $match_ref );
     };
 
     # to_app is called by the .psgi file and returns a coderef of the app
@@ -153,7 +161,10 @@ sub import
     my $mid_keyword = sub {
         my $name = ucfirst shift;
 
-        my $class_name = "Plack::Middlware::$name";
+        my $class_name = "Plack::Middleware::$name";
+        eval "require $class_name";
+        Carp::croak( "MID could not find a class called $class_name" )
+            if $@;
         $psgi_app = $class_name->wrap( $psgi_app, @_ );
     };
     $liason->( 'MID' => $mid_keyword );
