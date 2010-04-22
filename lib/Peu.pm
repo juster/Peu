@@ -79,8 +79,9 @@ sub import
                    });
     };
 
-    $def_method_keyword->( $_ ) foreach qw/ any get post delete update /;
+    $def_method_keyword->( $_ ) foreach qw/ ANY GET DEL POST UPDATE /;
 
+    # Create a default response...
     my $response = Peu::Res->new();
     $response->status( 200 );
     $response->content_type( 'text/html' );
@@ -117,10 +118,10 @@ sub import
         local $Carp::Internal{ (__PACKAGE__) } = 1;
         $app = $class_name->wrap( $app, @_ );
     };
-    $liason->( 'mid' => $mid_keyword );
+    $liason->( 'MID' => $mid_keyword );
 
     my %config_keywords = ( 'static' => sub { $mid_keyword->( 'static' ) } );
-    $liason->( 'cfg' => sub {
+    $liason->( 'CFG' => sub {
                    my $name = shift;
 
                    Carp::croak "$name is not a valid config key"
