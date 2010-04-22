@@ -7,6 +7,7 @@ our $VERSION = '0.01';
 
 use Router::Simple;
 use English qw(-no_match_vars);
+use Peu::Resp;
 
 sub import
 {
@@ -17,84 +18,94 @@ sub import
     my @before_filters;
     my @error_handlers;
 
-    my $response_maker = sub {
+    # Get or set globs in the caller package...
+    my $liason = sub {
+        my ($name, $ref) = @_;
+        no strict 'refs';
+        if ( defined $ref ) {
+            return *{ "${caller_pkg}::${name}" } = $ref;
+        }
+        else {
+            return *{ "${caller_pkg}::${name}" };
+        }
+    };
+
+    # This curries the coderef passed to the http method keyword.
+    my $resp_curry = sub {
         my ($usercode_ref) = @_;
 
-        sub {
+        return sub {
             my $match_ref = shift;
             $_->() foreach @{ delete $match_ref->{ '_befores' } };
 
-            # Store route parameters...
-            {
-                no strict 'refs';
-                *{ "${caller_pkg}::Prm" } = $match_ref;
-            }
-
+            # Store route parameters in the caller package...
+            $liason->( 'Prm' => $match_ref );
+            
             # Catch errors and use error handlers later...
             my @response = eval { $usercode_ref->() };
+
 #             return [ 500,
 #                      [ 'Content-Type' => 'text/html' ],
 #                      [ '500 Internal Server Error' ],
 #                     ] 
-            die if $EVAL_ERROR;
 
-            if ( eval { $response[0]->isa( 'Peu::Res' ) } ) {
-                return $response[0]->as_aref;
+            die if $EVAL_ERROR;
+            
+            my $res = $response[0];
+            unless ( eval { $res->isa( 'Peu::Res' ) } ) {
+                $res = Peu::Res->new( @response );
             }
 
-            require Peu::Res;
-            my $res = Peu::Res->new( @response );
             return $res->as_aref;
         }
     };
 
     # Sort of copied from Router::Simple::Cookbook
-    my $route_maker = sub {
-        no strict 'refs';
+    # Define an HTTP_METHOD keyword...
+    my $def_method_keyword = sub {
         my ($http_method) = @_;
-        *{ "${caller_pkg}::${http_method}" } = sub {
-            my $route    = shift;
-            my $code_ref = shift;
+
+        $liason->( $http_method, sub {
+                       my $route    = shift;
+                       my $code_ref = shift;
             
-            $router->connect( $route,
-                              { '_befores' => [ @before_filters ],
-                                '_errors'  => [ @error_handlers ],
-                                '_code'    => $response_maker->($code_ref),
-                               },
-                              ( $http_method eq 'any' ? ()
-                                : { method => uc $http_method } ),
-                             );
-        }
+                       $router->connect
+                           ( $route,
+                             { '_befores' => [ @before_filters ],
+                               '_errors'  => [ @error_handlers ],
+                               '_code'    => $resp_curry->($code_ref),
+                              },
+                             ( $http_method eq 'any' ? ()
+                               : { method => uc $http_method } ),
+                            );
+                   });
     };
 
-    {
-        no strict 'refs';
+    $def_method_keyword->( $_ ) foreach qw/ any get post delete update /;
 
-        my $anon_scalar;
-        *{ "${caller_pkg}::Req" } = \$anon_scalar;
-        *{ "${caller_pkg}::Rtr" } = \$router;
-        *{ "${caller_pkg}::Prm" } = {};
+    # Declare package variables in the caller package..
+    $liason->( 'Res' => Peu::Res->new() );
+    $liason->( 'Req' => do { my $anon_scalar; \$anon_scalar } );
+    $liason->( 'Rtr' => \$router );
+    $liason->( 'Prm' => {} );
 
-        *{ "${caller_pkg}::to_app" } = sub {
-            sub {
-                my $req_ref = shift;
+    # to_app is called by the .psgi file and returns a coderef of the app
+    $liason->( 'to_app' => sub {
+                   return sub {
+                       my $req_ref = shift;
 
-                require Peu::Req;
-                *{ "${caller_pkg}::Req" } = \Peu::Req->new( $req_ref );
+                       require Peu::Req;
+                       $liason->( 'Req', \Peu::Req->new( $req_ref ) );
 
-                my $match_ref = $router->match( $req_ref )
-                    or return [ 404,
-                                [ 'Content-Type' => 'text/html' ],
-                                [ '404 Not found' ],
-                               ];
+                       my $match_ref = $router->match( $req_ref )
+                           or return [ 404,
+                                       [ 'Content-Type' => 'text/html' ],
+                                       [ '404 Not found' ],
+                                      ];
 
-                ( delete $match_ref->{ '_code' } )->( $match_ref );
-            }
-        };
-
-    }
-
-    $route_maker->( $_ ) foreach qw/ any get post delete update /;
+                       ( delete $match_ref->{ '_code' } )->( $match_ref );
+                   }
+               });
 }
 
 1; # End of Peu
@@ -103,7 +114,7 @@ __END__
 
 =head1 NAME
 
-Peu - Un peu web "framework".
+makerPeu - Un peu web "framework".
 
 =head1 VERSION
 
