@@ -129,6 +129,10 @@ sub import
 
     my $psgi_app = sub {
         my $req_ref = shift;
+
+        # If PATH_INFO is blank we can never match it to a route...
+        $req_ref->{PATH_INFO} ||= q{/};
+
         $liason->( 'Req', \Peu::Req->new( $req_ref ) );
 
         my $match_ref = $router->match( $req_ref );
