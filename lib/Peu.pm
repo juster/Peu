@@ -182,21 +182,17 @@ __END__
 
 =head1 NAME
 
-makerPeu - Un peu web "framework".
-
-=head1 VERSION
-
-0.01
+Peu - A little web framework.
 
 =head1 SYNOPSIS
 
   use Peu;
 
-  any "/api/{version}/{arg}" => {
+  ANY "/api/{version}/{arg}" => {
     "Hello, I'm Peu!  You want version $Prm{version}?  $Prm{arg} you!"
   }
   
-  post "/api/1.3" => {
+  POST "/api/1.3" => {
     $Res->code( 500 );
     $Res->content-type( 'text/plain' );
     '500 Error';
@@ -206,7 +202,7 @@ makerPeu - Un peu web "framework".
 
 This is a micro framework that is even smaller than micro... it's peu!
 Peu means "little" in French.  It's another DSL framework with less
-features in about 100 lines of code.
+features in about 200 lines of code.
 
 =head1 WHY
 
@@ -226,8 +222,9 @@ TODO
 
 =head2 Package Variables
 
-A few package variables are created into the importer's namespace.
-This is so they can be used inside any of the router response blocks.
+A few package variables are created inside the caller's (that's you!)
+namespace.  This is so they can be used inside any of the router
+response blocks.
 
 =over 4
 
