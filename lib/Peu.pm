@@ -54,9 +54,9 @@ sub import
             # Acknowledge raw PSGI responses as well...
             return $result if ref $result eq 'ARRAY';
             
-            my $res = *{ $liason->( 'Res' ) }{SCALAR};
-            ${$res}->body( $result ) if $result;
-            return ${$res}->as_aref;
+            my $res = ${ *{ $liason->( 'Res' ) }{SCALAR} };
+            $res->body( $result ) if $result;
+            return $res->as_aref;
         }
     };
     
@@ -96,7 +96,6 @@ sub import
 
     $def_method_keyword->( $_ ) foreach qw/ ANY GET DEL POST UPDATE /;
 
-    # TOP handlers match when there is no path_info or it is just "/"
     # DEFAULT handlers match when nothing else does...
     my $default_handler;
 
