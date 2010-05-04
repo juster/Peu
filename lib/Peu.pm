@@ -116,11 +116,11 @@ sub import
                });
 
     # Declare package variables in the caller package..
-    my $empty_scalar;
+    my ( $empty_hash, $empty_scalar ) = {};
     $liason->( 'Res' => \$empty_scalar );
     $liason->( 'Req' => \$empty_scalar );
-    $liason->( 'Rtr' => \$router      );
-    $liason->( 'Prm' => {} );
+    $liason->( 'Prm' => \$empty_hash   );
+    $liason->( 'Rtr' => \$router       );
 
     my $psgi_app = sub {
         my $req_ref = shift;
@@ -135,6 +135,7 @@ sub import
 
         $liason->( 'Res' => \$response ); 
         $liason->( 'Req' => \Peu::Req->new( $req_ref ) );
+        $liason->( 'Prm' => {} );
 
         my $match_ref = $router->match( $req_ref );
         $match_ref ||= $default_handler;
@@ -143,7 +144,7 @@ sub import
         $responder_ref->( $match_ref );
     };
 
-    # to_app is called by the .psgi file and returns a coderef of the app
+    # to_app is called by Plack and returns a coderef of the app
     $liason->( 'to_app' => sub { $psgi_app } );
 
     # The "mid" keyword enables Plack middleware.
