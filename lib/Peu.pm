@@ -115,15 +115,11 @@ sub import
                    return <$file>;
                });
 
-    # Create a default response object...
-    my $response = Peu::Res->new();
-    $response->status( 200 );
-    $response->content_type( 'text/html' );
-
     # Declare package variables in the caller package..
-    $liason->( 'Res' => \$response );
-    $liason->( 'Rtr' => \$router );
-    $liason->( 'Req' => do { my $anon_scalar; \$anon_scalar } );
+    my $empty_scalar;
+    $liason->( 'Res' => \$empty_scalar );
+    $liason->( 'Req' => \$empty_scalar );
+    $liason->( 'Rtr' => \$router      );
     $liason->( 'Prm' => {} );
 
     my $psgi_app = sub {
@@ -132,7 +128,13 @@ sub import
         # If PATH_INFO is blank we can never match it to a route...
         $req_ref->{PATH_INFO} ||= q{/};
 
-        $liason->( 'Req', \Peu::Req->new( $req_ref ) );
+        # Create a default response object...
+        my $response = Peu::Res->new();
+        $response->status( 200 );
+        $response->content_type( 'text/html' );
+
+        $liason->( 'Res' => \$response ); 
+        $liason->( 'Req' => \Peu::Req->new( $req_ref ) );
 
         my $match_ref = $router->match( $req_ref );
         $match_ref ||= $default_handler;
