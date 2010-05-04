@@ -36,10 +36,13 @@ sub import
 
         return sub {
             my $match_ref = shift;
-            $_->() foreach @{ delete $match_ref->{ '_befores' } };
+            $_->() foreach @{ $match_ref->{ '_befores' } };
 
             # Store route parameters in the caller package...
-            $liason->( 'Prm' => $match_ref );
+            # Do not copy internal use keys which begin with _
+            my %params = map { ( $_ => $match_ref->{$_} ) }
+                grep { ! /^_/ } keys %$match_ref;
+            $liason->( 'Prm' => \%params );
             
             # Catch errors and use error handlers later...
             my $result = eval { $usercode_ref->() };
@@ -94,7 +97,7 @@ sub import
                    });
     };
 
-    $def_method_keyword->( $_ ) foreach qw/ ANY GET DEL POST UPDATE /;
+    $def_method_keyword->( $_ ) foreach qw/ ANY GET DEL POST DELETE UPDATE /;
 
     # DEFAULT handlers match when nothing else does...
     my $default_handler;
@@ -140,7 +143,7 @@ sub import
         my $match_ref = $router->match( $req_ref );
         $match_ref ||= $default_handler;
 
-        my $responder_ref = delete $match_ref->{ '_code' };
+        my $responder_ref = $match_ref->{ '_code' };
         $responder_ref->( $match_ref );
     };
 
