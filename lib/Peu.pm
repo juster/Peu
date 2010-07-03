@@ -119,10 +119,10 @@ sub import
                });
 
     # Declare package variables in the caller package..
-    my ( $empty_hash, $empty_scalar ) = {};
+    my ( %empty_hash, $empty_scalar );
     $liason->( 'Res' => \$empty_scalar );
     $liason->( 'Req' => \$empty_scalar );
-    $liason->( 'Prm' => \$empty_hash   );
+    $liason->( 'Prm' => \%empty_hash   );
     $liason->( 'Rtr' => \$router       );
 
     my $psgi_app = sub {
