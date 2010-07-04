@@ -8,6 +8,8 @@ our $VERSION = '0.01';
 use Router::Simple;
 use Peu::Req;
 use Peu::Res;
+use Peu::Ext::View;
+
 
 use English    qw(-no_match_vars);
 use Carp       qw();
@@ -229,6 +231,17 @@ sub import
     };
     $liason->( 'CFG' => $EX_cfg );
 
+    ######################################################################
+    # COMMON EXTENSIONS
+    #---------------------------------------------------------------------
+    
+    my %ext_methods = ( 'wrap'    => $EX_wrap,
+                        'cfg'     => $EX_cfg,
+                        'liason'  => $liason,
+                        'attribs' => \&ATTRIBS, );
+
+    Peu::Ext::View->new( \%ext_methods )->run();
+
     return;
 }
 
@@ -258,7 +271,7 @@ Peu - A little web framework.
 
 This is a micro framework that is even smaller than micro... it's peu!
 Peu means "little" in French.  It's another DSL framework with less
-features in about 200 lines of code.
+features in about 400 lines of code.
 
 =head1 WHY
 
