@@ -94,7 +94,7 @@ sub import
     #---------------------------------------------------------------------
 
     my $C_execute_route; # This is defined later on...
-    my ($V_response_obj, $V_request_obj, $V_route_params);
+    my ($V_route_params, $V_response_obj, $V_request_obj) = {};
 
     # DEFAULT handlers match when nothing else does...
     my $default_handler = sub { [ 404,
