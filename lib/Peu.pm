@@ -100,66 +100,25 @@ sub import
         }
     };
 
-    ##########################################################################
-    # TEMPLATE VIEWS
-    #-------------------------------------------------------------------------
-    # I. View parameters are set by :VIEW attributes in response subroutines.
-    # (this is a filename or __DATA__ section name)
-    # II. View references are code references that take hash parameters.
-    # (or whatever the view extension wants)
-    # III. View references can be set by view extensions Peu::Ext::
-    #      which are specified by CFG...
-    #-------------------------------------------------------------------------
-
-    my %DATA_TEMPLATES;         # templates that are in __DATA__
-    my $TEMPLATE_DIR;           # directory of template files
-    my @VIEW_PARAMS;            # given via response in :VIEW(...)
-
-    # A view object is created when the response matches...
-    #  the object has a "filename" and a "render" method
-    my $VIEW_CLASS = 'Peu::Ext::Fu';
-    my $mk_viewobj_ref = sub {
-        $VIEW_CLASS->new( @_ );
-    };
-
-    # This render_ref is called by the response currier, later on...
-    my $render_ref = sub {
-        %DATA_TEMPLATES = _get_data_templates( $caller_pkg );
-        my $view_obj = $mk_viewobj_ref->( @VIEW_PARAMS );
-        return $view_obj->process( \%DATA_TEMPLATES, @_ );
-    };
-
     ######################################################################
     # CONFIGURATION OPTIONS
 
-    my %config_keywords = ( 'VIEW' => sub {
-                                my $name = shift;
-                                my $ext  = "Peu::Ext::$name";
-                                eval "require $ext; 1"
-                                    or Carp::croak "failed to load $ext: $@";
+    my %config_keywords;
+    my $EX_set_config = sub {
+        my $name = shift;
 
-                                return sub {
-                                    $mk_viewobj_ref = sub {
-                                        $ext->new( @VIEW_PARAMS );
-                                    };
-                                }
-                            } );
+        Carp::croak "$name is not a valid config key"
+            unless exists $config_keywords{ $name };
 
-    $liason->( 'CFG' => sub {
-                   my $name = shift;
+        my $cfgset_ref = $config_keywords{ $name };
+        Carp::croak "$name was already set and cannot be changed"
+            unless defined $cfgset_ref;
 
-                   Carp::croak "$name is not a valid config key"
-                       unless exists $config_keywords{ $name };
-
-                   my $cfgset_ref = $config_keywords{ $name };
-                   Carp::croak "$name was already set and cannot be changed"
-                       unless defined $cfgset_ref;
-
-                   $cfgset_ref->( @_ );
-                   undef $config_keywords{ $name };
-                   return;
-               },
-              );
+        $cfgset_ref->( @_ );
+        undef $config_keywords{ $name };
+        return;
+    };
+    $liason->( 'CFG' => $EX_set_config );
 
     ######################################################################
     # HTTP RESPONSES
@@ -170,7 +129,6 @@ sub import
 
         return sub {
             my $match_ref = shift;
-            $_->() foreach @{ $match_ref->{ '_befores' } };
 
             # Store route parameters in the caller package...
             # Do not copy internal use keys which begin with _
@@ -180,11 +138,6 @@ sub import
 
             # Catch errors and use error handlers later...
             my $result = eval { $usercode_ref->() };
-
-#             return [ 500,
-#                      [ 'Content-Type' => 'text/html' ],
-#                      [ '500 Internal Server Error' ],
-#                     ] 
             die if $EVAL_ERROR;
 
             @VIEW_PARAMS = @{ $match_ref->{'_viewargs'} };
@@ -213,23 +166,6 @@ sub import
             return $res->as_aref;
         }
     };
-    
-    # These get added to later and are checked when a match occurs.
-    my @before_filters;
-    my @error_handlers;
-
-    my $make_match_data = sub {
-        my ( $code_ref, $view_args ) = @_;
-
-        Carp::croak( 'Invalid argument: must be a code reference' )
-            unless ref $code_ref eq 'CODE';
-        
-        return { '_befores'  => [ @before_filters ],
-                 '_errors'   => [ @error_handlers ],
-                 '_viewargs' => $view_args,
-                 '_code'     => $resp_curry->( $code_ref ),
-                };
-    };
 
     # We use attributes for specifying routes...
     # MODIFY_CODE_ATTRIBUTES is called when a sub is defined with attributes
@@ -242,7 +178,7 @@ sub import
 
                    $router->connect
                        ( $resp{'route'},
-                         $make_match_data->( $coderef, $resp{'viewargs'} ),
+                         { %{$resp{'data'}}, '_code' => $coderef },
                          ( $resp{'method'} eq 'ANY'
                            ? () : { method => $resp{'method'} } ),
                         );
@@ -251,19 +187,17 @@ sub import
                } );
 
     # DEFAULT handlers match when nothing else does...
-    my $default_handler =
-        $make_match_data->( sub { [ 404,
-                                    [ 'Content-Type' => 'text/html' ],
-                                    [ '404 Not found' ],
-                                   ];
-                              } );
+    my $default_handler = sub { [ 404,
+                                  [ 'Content-Type' => 'text/html' ],
+                                  [ '<h1>404 Not found</h1>' ],
+                                 ];
+                            };
 
     # Declare package variables in the caller package..
     my ( %empty_hash, $empty_scalar );
-    $liason->( 'Res' => \$empty_scalar );
-    $liason->( 'Req' => \$empty_scalar );
-    $liason->( 'Prm' => \%empty_hash   );
-    $liason->( 'Rtr' => \$router       );
+    $liason->( 'Res' => \$empty_scalar ); # response object
+    $liason->( 'Req' => \$empty_scalar ); # request object
+    $liason->( 'Prm' => \%empty_hash   ); # route parameters
 
     my $psgi_app = sub {
         my $req_ref = shift;
@@ -287,9 +221,9 @@ sub import
         $responder_ref->( $match_ref );
     };
 
-    # to_app is called by Plack and returns a coderef of the app
-    $liason->( 'to_app' => sub { $psgi_app } );
-    $liason->( 'FIN'    => sub { $psgi_app } );
+    my $to_app = sub { $psgi_app };
+    $liason->( 'to_app' => $to_app );
+    $liason->( 'FIN'    => $to_app );
 
     # The "mid" keyword enables Plack middleware.
     my $mid_keyword = sub {
