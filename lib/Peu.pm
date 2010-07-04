@@ -227,10 +227,10 @@ sub import
     # COMMON EXTENSIONS
     #---------------------------------------------------------------------
     
-    my %ext_methods = ( 'wrap'    => $EX_wrap,
-                        'cfg'     => $EX_cfg,
-                        'liason'  => $liason,
-                        'attribs' => \&ATTRIBS, );
+    my %ext_methods = ( 'wrap'   => $EX_wrap,
+                        'cfg'    => $EX_cfg,
+                        'liason' => $liason,
+                        'attrib' => \&ATTRIB, );
 
     Peu::Ext::View->new( \%ext_methods )->run();
 
