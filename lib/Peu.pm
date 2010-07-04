@@ -86,9 +86,7 @@ sub import
         if ( defined $ref ) {
             return *{ "${caller_pkg}::${name}" } = $ref;
         }
-        else {
-            return *{ "${caller_pkg}::${name}" };
-        }
+        return *{ "${caller_pkg}::${name}" };
     };
 
     ######################################################################
