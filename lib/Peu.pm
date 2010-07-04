@@ -8,8 +8,78 @@ our $VERSION = '0.01';
 use Router::Simple;
 use Peu::Req;
 use Peu::Res;
+use Peu::Ext::Fu;
+
 use English    qw(-no_match_vars);
 use Carp       qw();
+
+$Carp::CarpInternal{ __PACKAGE__ } = 1;
+
+#---HELPER FUNCTION---
+# Pass it a reference to the attributes list.  Removes recognized
+# attributes from the list and returns the value to use for the
+# http_method argument to $router->connect
+sub _extract_req_attribs
+{
+    my ($attribs_ref) = @_;
+
+    my ( @unknown_attribs, %results );
+
+    ATTRIB_LOOP:
+    while ( my $attrib = shift @$attribs_ref ) {
+        unless ( $attrib =~ / \A (ANY|GET|POST|UPDATE|DEL|DELETE|VIEW)
+                              [(] ([^)]+) [)] \z /xms ) {
+            push @unknown_attribs, $attrib;
+            next ATTRIB_LOOP;
+        }
+
+        if ( $1 eq 'VIEW' ) {
+            Carp::croak( 'You can only have one :VIEW attribute' )
+                if $results{ 'viewargs' };
+            $results{'viewargs'} = [ split /\s*,\s*/, $2 ];
+            next ATTRIB_LOOP;
+        }
+
+        Carp::croak( 'You can only have one HTTP-method attribute' )
+            if $results{ 'method' };
+        $results{'method'} = $1;
+        $results{'route'}    = $2;
+    }
+
+    @$attribs_ref = @unknown_attribs;
+    $results{'viewargs'} ||= [];
+
+    return %results;
+}
+
+#---HELPER FUNCTION---
+sub _get_data_templates
+{
+    my ($package) = @_;
+
+    my $datafh = do { no strict 'refs'; *{ $package . '::DATA' } };
+
+    return () if eof $datafh;
+
+    my ( %result, $name, $text );
+
+    LINE_LOOP:
+    while ( my $line = <$datafh> ) {
+        unless ( $line =~ / ^ \s* __([\w.-]+)__ \s* $ /xms ) {
+            $text .= $line;
+            next LINE_LOOP;
+        }
+        if ( $name ) {
+            $text =~ s/\n{2,}\z/\n/; # remove newlines between entries
+            $result{ $name } = $text;
+        }
+        $name = $1;
+        $text = q{};
+    }
+
+    $result{ $name } = $text if $text;
+    return %result;
+}
 
 sub import
 {
@@ -30,6 +100,70 @@ sub import
         }
     };
 
+    ##########################################################################
+    # TEMPLATE VIEWS
+    #-------------------------------------------------------------------------
+    # I. View parameters are set by :VIEW attributes in response subroutines.
+    # (this is a filename or __DATA__ section name)
+    # II. View references are code references that take hash parameters.
+    # (or whatever the view extension wants)
+    # III. View references can be set by view extensions Peu::Ext::
+    #      which are specified by CFG...
+    #-------------------------------------------------------------------------
+
+    my %DATA_TEMPLATES;         # templates that are in __DATA__
+    my $TEMPLATE_DIR;           # directory of template files
+    my @VIEW_PARAMS;            # given via response in :VIEW(...)
+
+    # A view object is created when the response matches...
+    #  the object has a "filename" and a "render" method
+    my $VIEW_CLASS = 'Peu::Ext::Fu';
+    my $mk_viewobj_ref = sub {
+        $VIEW_CLASS->new( @_ );
+    };
+
+    # This render_ref is called by the response currier, later on...
+    my $render_ref = sub {
+        %DATA_TEMPLATES = _get_data_templates( $caller_pkg );
+        my $view_obj = $mk_viewobj_ref->( @VIEW_PARAMS );
+        return $view_obj->process( \%DATA_TEMPLATES, @_ );
+    };
+
+    ######################################################################
+    # CONFIGURATION OPTIONS
+
+    my %config_keywords = ( 'VIEW' => sub {
+                                my $name = shift;
+                                my $ext  = "Peu::Ext::$name";
+                                eval "require $ext; 1"
+                                    or Carp::croak "failed to load $ext: $@";
+
+                                return sub {
+                                    $mk_viewobj_ref = sub {
+                                        $ext->new( @VIEW_PARAMS );
+                                    };
+                                }
+                            } );
+
+    $liason->( 'CFG' => sub {
+                   my $name = shift;
+
+                   Carp::croak "$name is not a valid config key"
+                       unless exists $config_keywords{ $name };
+
+                   my $cfgset_ref = $config_keywords{ $name };
+                   Carp::croak "$name was already set and cannot be changed"
+                       unless defined $cfgset_ref;
+
+                   $cfgset_ref->( @_ );
+                   undef $config_keywords{ $name };
+                   return;
+               },
+              );
+
+    ######################################################################
+    # HTTP RESPONSES
+
     # This curries the coderef passed to the http method keyword.
     my $resp_curry = sub {
         my ($usercode_ref) = @_;
@@ -43,7 +177,7 @@ sub import
             my %params = map { ( $_ => $match_ref->{$_} ) }
                 grep { ! /^_/ } keys %$match_ref;
             $liason->( 'Prm' => \%params );
-            
+
             # Catch errors and use error handlers later...
             my $result = eval { $usercode_ref->() };
 
@@ -51,14 +185,31 @@ sub import
 #                      [ 'Content-Type' => 'text/html' ],
 #                      [ '500 Internal Server Error' ],
 #                     ] 
-
             die if $EVAL_ERROR;
 
-            # Acknowledge raw PSGI responses as well...
-            return $result if ref $result eq 'ARRAY';
+            @VIEW_PARAMS = @{ $match_ref->{'_viewargs'} };
+
+            if ( @VIEW_PARAMS ) {
+                $result = $render_ref->( ref $result eq 'HASH'
+                                         ? $result
+                                         : \%params );
+            }
+
+            my $reftype = ref $result;
+
+            # Acknowledge raw PSGI responses...
+            return $result if $reftype eq 'ARRAY';
+
+            if ( $reftype eq 'HASH' ) {
+                Carp::croak 'Response needs a :VIEW attribute when '
+                    . 'returning hashrefs';
+            }
+
+            Carp::croak "Response result must be a scalar, aref, or hashref"
+                if $reftype || ! defined $result;
             
             my $res = ${ *{ $liason->( 'Res' ) }{SCALAR} };
-            $res->body( $result ) if $result;
+            $res->body( $result );
             return $res->as_aref;
         }
     };
@@ -68,55 +219,44 @@ sub import
     my @error_handlers;
 
     my $make_match_data = sub {
-        my $code_ref = shift;
+        my ( $code_ref, $view_args ) = @_;
 
         Carp::croak( 'Invalid argument: must be a code reference' )
             unless ref $code_ref eq 'CODE';
         
-        return { '_befores' => [ @before_filters ],
-                 '_errors'  => [ @error_handlers ],
-                 '_code'    => $resp_curry->( $code_ref ),
+        return { '_befores'  => [ @before_filters ],
+                 '_errors'   => [ @error_handlers ],
+                 '_viewargs' => $view_args,
+                 '_code'     => $resp_curry->( $code_ref ),
                 };
     };
 
-    # Sort of copied from Router::Simple::Cookbook
-    # Define an HTTP_METHOD keyword...
-    my $def_method_keyword = sub {
-        my $http_method = uc shift;
+    # We use attributes for specifying routes...
+    # MODIFY_CODE_ATTRIBUTES is called when a sub is defined with attributes
+    $liason->( 'MODIFY_CODE_ATTRIBUTES' => sub {
+                   my ($pkg, $coderef, @attribs) = @_;
+                   my %resp = _extract_req_attribs( \@attribs );
 
-        $liason->( $http_method, sub {
-                       my $route    = shift;
-                       my $code_ref = shift;
-            
-                       $router->connect
-                           ( $route,
-                             $make_match_data->( $code_ref ),
-                             ( $http_method eq 'ANY' ? ()
-                               : { method => $http_method } ),
-                            );
-                   });
-    };
+                   # Return any attributes we don't recognize...
+                   return @attribs if @attribs;
 
-    $def_method_keyword->( $_ ) foreach qw/ ANY GET DEL POST DELETE UPDATE /;
+                   $router->connect
+                       ( $resp{'route'},
+                         $make_match_data->( $coderef, $resp{'viewargs'} ),
+                         ( $resp{'method'} eq 'ANY'
+                           ? () : { method => $resp{'method'} } ),
+                        );
+
+                   return qw//;
+               } );
 
     # DEFAULT handlers match when nothing else does...
-    my $default_handler;
-
-    $default_handler =
+    my $default_handler =
         $make_match_data->( sub { [ 404,
                                     [ 'Content-Type' => 'text/html' ],
                                     [ '404 Not found' ],
                                    ];
                               } );
-
-    $liason->( 'SLURP' => sub {
-                   my ($path) = @_;
-                   
-                   local $/;
-                   open my $file, q{<}, $path
-                       or Carp::croak( "open on $path: $!" );
-                   return <$file>;
-               });
 
     # Declare package variables in the caller package..
     my ( %empty_hash, $empty_scalar );
@@ -149,6 +289,7 @@ sub import
 
     # to_app is called by Plack and returns a coderef of the app
     $liason->( 'to_app' => sub { $psgi_app } );
+    $liason->( 'FIN'    => sub { $psgi_app } );
 
     # The "mid" keyword enables Plack middleware.
     my $mid_keyword = sub {
@@ -161,23 +302,6 @@ sub import
         $psgi_app = $class_name->wrap( $psgi_app, @_ );
     };
     $liason->( 'MID' => $mid_keyword );
-
-    my %config_keywords = ( );
-    $liason->( 'CFG' => sub {
-                   my $name = shift;
-
-                   Carp::croak "$name is not a valid config key"
-                       unless exists $config_keywords{ $name };
-
-                   my $cfgset_ref = $config_keywords{ $name };
-                   Carp::croak "$name was already set and cannot be changed"
-                       unless defined $cfgset_ref;
-
-                   $cfgset_ref->( @_ );
-                   undef $config_keywords{ $name };
-                   return;
-               },
-              );
 
     return;
 }

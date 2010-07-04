@@ -1,4 +1,4 @@
-Build.PL
+Makefile.PL
 ChangeLog
 MANIFEST
 README
@@ -6,6 +6,8 @@ ex/helloworld.psgi
 lib/Peu.pm
 lib/Peu/Req.pm
 lib/Peu/Res.pm
+lib/Peu/Tmp.pm
+lib/Peu/Ext/Fu.pm
 t/00-load.t
 t/manifest.t
 t/pod-coverage.t
