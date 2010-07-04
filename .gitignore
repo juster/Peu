@@ -10,3 +10,7 @@ pm_to_blib*
 cover_db
 pod2htm*.tmp
 Peu-*
+*~
+inc
+META.yml
+MYMETA.yml
