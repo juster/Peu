@@ -130,7 +130,12 @@ sub import
         my $match_ref = $V_router->match( $req_ref );
         $match_ref ||= $default_handler;
 
-        $C_execute_route->( $match_ref );
+        my $result = $C_execute_route->( $match_ref );
+
+        return $result if ref $result;
+        $V_response_obj->body( $result );
+        return $V_response_obj->as_aref;
+        
     };
 
     my $to_app = sub { $psgi_app };
@@ -167,17 +172,6 @@ sub import
         };
     };
     $liason->( 'WRAP' => $EX_wrap );
-
-    # Treat non-reference data like response body text...
-    $EX_wrap->( sub {
-                    my $next = shift;
-                    my $result = $next->( @_ );
-
-                    return $result if ( ref $result );
-
-                    $V_response_obj->body( $result );
-                    return $V_response_obj->as_aref;
-                } );
 
     # We use attributes for specifying routes...
     # MODIFY_CODE_ATTRIBUTES is called when a sub is defined with attributes
