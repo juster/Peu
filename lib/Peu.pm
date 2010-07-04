@@ -44,7 +44,7 @@ sub _extract_route_attribs
 
     ATTRIB_LOOP:
     while ( my $attrib = shift @$attribs_ref ) {
-        unless ( $attrib =~ / \A (ANY|GET|POST|UPDATE|DEL|DELETE|VIEW)
+        unless ( $attrib =~ / \A (ANY|GET|POST|UPDATE|DEL|DELETE)
                               [(] ([^)]+) [)] \z /xms ) {
 
             # Call our custom attribute handler if our HTTP request type
