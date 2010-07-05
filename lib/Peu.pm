@@ -108,13 +108,19 @@ sub import
     my $C_execute_route; # This is defined later on...
     my ($V_route_params, $V_response_obj, $V_request_obj) = {};
 
-    # DEFAULT handlers match when nothing else does...
-    my $default_handler = sub { [ 404,
-                                  [ 'Content-Type' => 'text/html' ],
-                                  [ '<h1>404 Not found</h1>' ],
-                                 ];
-                            };
-
+    # The default handler matches when nothing else does...
+    my $default_handler = sub {
+        [ 404,
+          [ 'Content-Type' => 'text/html' ],
+          [ <<END_HTML ],
+<html>
+<head><title>404 Not Found</title></head>
+<body><h1>404 Not Found</h1></body>
+</html>
+END_HTML
+         ];
+    };
+     
     # Declare package variables in the caller package..
     $liason->( 'Res' => \$V_response_obj ); 
     $liason->( 'Req' => \$V_request_obj  );
@@ -139,15 +145,16 @@ sub import
         # Create a request object for this new request...
         $V_request_obj = Peu::Req->new( $req_ref );
 
-        my $match_ref = $V_router->match( $req_ref );
-        $match_ref ||= $default_handler;
+        my $matchdata_ref = $V_router->match( $req_ref );
+        $matchdata_ref  ||= { '_code' => $default_handler };
 
-        my $result = $C_execute_route->( $match_ref );
+        my $result = $C_execute_route->( $matchdata_ref );
 
+        # If the controller code returns a scalar, treat it like
+        # the body text for the response...
         return $result if ref $result;
         $V_response_obj->body( $result );
         return $V_response_obj->as_aref;
-        
     };
 
     my $to_app = sub { $psgi_app };
