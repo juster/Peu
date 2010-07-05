@@ -14,8 +14,8 @@ sub run
     $self->{'basepath'} = shift @args;
 
     $self->attrib( 'VIEW' => sub {
-                       my ($name, $data) = @_;
-                       $data->{'_view_name'} = $name;
+                       my ($name) = @_;
+                       return ( '_view_name' => $name );
                    }
                   );
 

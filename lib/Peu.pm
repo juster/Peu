@@ -25,7 +25,8 @@ sub ATTRIB
     Carp::croak( 'Invalid arguments to ATTRIB' )
         if ( ! $name || ref $name || ref $handler_ref ne 'CODE' );
 
-    $USER_ATTRIBS{ $name } = $handler_ref;
+    # Store where the attribute is defined for error reporting...
+    $USER_ATTRIBS{ $name } = [ $handler_ref, [ caller ] ];
 }
 
 #---HELPER FUNCTION---
@@ -44,31 +45,42 @@ sub _extract_route_attribs
 
     ATTRIB_LOOP:
     while ( my $attrib = shift @$attribs_ref ) {
-        unless ( $attrib =~ / \A (ANY|GET|POST|UPDATE|DEL|DELETE)
+        # Check our standards HTTP attributes...
+        if ( $attrib =~ / \A (ANY|GET|POST|UPDATE|DEL|DELETE)
                               [(] ([^)]+) [)] \z /xms ) {
+            Carp::croak( 'You can only have one HTTP-method attribute' )
+                if $results{ 'method' };
 
-            # Call our custom attribute handler if our HTTP request type
-            # attributes did not match...
-            if ( $attrib =~ /$user_attrib_match/ ) {
-                my $name = $1;
-                eval { $USER_ATTRIBS{ $name }->( $2, $user_data ) };
-                next ATTRIB_LOOP unless $@;
-                Carp::croak( "Attribute handler for $name failed: $@" );
-            }
+            $results{'method'} = $1;
+            $results{'route'}  = $2;
+            next ATTRIB_LOOP;
+        }
 
+        # If our user defined attributes don't match, attribute is
+        # unknown.  This generally displays an error.
+        unless ( $attrib =~ /$user_attrib_match/ ) {
             push @unknown_attribs, $attrib;
             next ATTRIB_LOOP;
         }
 
-        Carp::croak( 'You can only have one HTTP-method attribute' )
-            if $results{ 'method' };
+        # Call our custom attribute handler if our HTTP request type
+        # attributes did not match...
 
-        $results{'method'} = $1;
-        $results{'route'}  = $2;
+        my $name       = $1;
+        my $attrib_ref = $USER_ATTRIBS{ $name }; # $attrib is an aref
+        my %newdata    = eval { $attrib_ref->[0]->( split /\s*,\s*/, $2 ) };
+
+        Carp::croak( qq{Attribute for "$name" defined at } .
+                     qq{$attrib_ref->[1][1]:$attrib_ref->[1][2] } .
+                     qq{failed:\n$EVAL_ERROR} ) if $EVAL_ERROR;
+
+        # Merge new data into userdata to be stored in the route...
+        for my $newkey ( keys %newdata ) {
+            $user_data->{ $newkey } = $newdata{ $newkey };
+        }
     }
 
     @$attribs_ref = @unknown_attribs;
-
     return %results;
 }
 
