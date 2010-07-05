@@ -3,6 +3,7 @@ ChangeLog
 MANIFEST
 README
 ex/helloworld.psgi
+ex/fumanchi.psgi
 lib/Peu.pm
 lib/Peu/Req.pm
 lib/Peu/Res.pm
