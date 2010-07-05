@@ -5,14 +5,13 @@ use strict;
 
 our $VERSION = '0.01';
 
+use English    qw(-no_match_vars);
+use Carp       qw();
+
 use Router::Simple;
 use Peu::Req;
 use Peu::Res;
 use Peu::Ext::View;
-
-
-use English    qw(-no_match_vars);
-use Carp       qw();
 
 $Carp::CarpInternal{ __PACKAGE__ } = 1;
 
@@ -262,43 +261,136 @@ __END__
 
 =head1 NAME
 
-Peu - A little web framework.
+Peu - A little perl web framework.
 
 =head1 SYNOPSIS
 
+  # Example .psgi file:
   use Peu;
 
-  ANY "/api/{version}/{arg}" => {
-    "Hello, I'm Peu!  You want version $Prm{version}?  $Prm{arg} you!"
+  # If you return just text, it is made the response body.
+  sub fooyou :ANY(/api/{version}/{arg}) {
+      "Hello, I'm Peu!  You want version $Prm{version}?  $Prm{arg} you!"
   }
   
-  POST "/api/1.3" => {
-    $Res->code( 500 );
-    $Res->content-type( 'text/plain' );
-    '500 Error';
+  # Maybe you want to change other things about the response, first?
+  sub old :ANY(/api/1.3) {
+      $Res->code( 500 );
+      $Res->content-type( 'text/plain' );
+      '500 Error';
   }
+  
+  sub raw :ANY(/psgi) {
+      # You can also return a raw PSGI response array-ref.
+      return [ '404',
+               [ Content-Type => 'text/plain' ],
+               [ '<h1>404 Error!</h1>' ],
+              ];
+  }
+
+  # Want templates? use the :VIEW attribute ...
+  
+  sub fumanchu :GET(/fu/:variable) :VIEW(fumanchu) {
+      # return undef     ^^^^^^^^
+      # passes the route parameters as a hashref to the template (fumanchu)
+  }
+  
+  sub fuwhat :GET(/say/what/) :VIEW(fumanchu) {
+      # or you can return explicit hash references to templates...
+      { 'variable' => 'what?' };
+  }
+
+  FIN # <--- this must be at the end of your .psgi file!
+
+  __DATA__
+  
+  __fumanchu__
+  This is the Fu-Manchu template system, based on Mustache.
+  It is very incomplete, all it can do it interpolate variables
+  by wrapping them in "mustaches": {{variable}}
 
 =head1 DESCRIPTION
 
-This is a micro framework that is even smaller than micro... it's peu!
-Peu means "little" in French.  It's another DSL framework with less
-features in about 400 lines of code.
+Peu is a micro web framework that runs on top of L<Plack>.  It started
+off as a Dancer DSL clone but now looks more like Bottle.  Like
+Catalyst, Peu uses subroutine attributes to determines routes.  Unlike
+Catalyst, the routes are explicit (more like RoR I imagine).
 
-=head1 WHY
+Peu does some funky things like use global variables for passing
+around the HTTP request and response objects.  Micro web frameworks
+all seem kind of funky anyways and should embrace the funk!
 
-I sort of started to use Plack to write a B<REALLY> simple application.
-However Plack's docs kept saying "don't do that! we're for frameworks
-only, stupid!".  So I made a super simple one that let me use
-Route::Simple and Plack::Request.  Neato!
+The goal of Peu is to be as minimal as possible.  The only outside
+dependencies are L<Plack> and L<Router::Simple>.
 
-=head1 HOW
+=head1 ROUTES
 
-Well it's sort of like another Sinatra clone, but more like one that
-is deformed and missing important bits.
+The basic building block of all Peu webapps is, of course, the route.
+A route is just a chunk of logic that matches an HTTP request.  HTTP
+requests (from clients) can ask for just about any I<URI>.  By
+matching a given I<URI> path, a Peu route can easily extract
+parameters from the path or request, prepare a response, and send data
+to the view.
 
-=head2 any / get / post / delete / update
+Peu I<currently> uses L<Router::Simple> so the syntax of the routes is
+the same as plain vanilla L<Router::Simple>.  Routes are defined as
+subroutine attributes.  Attributes have the appearance of subroutine
+calls.  A parenthesis with the route inside directly follow the
+attribute.
 
-TODO
+The attribute names are in all capitals and match the different type
+of HTTP requests.  Except for I<ANY> which matches, you guessed it,
+any type of HTTP request.  Sound familiar?
+
+=head2 Route Match Syntax
+
+See L<Router::Simple> for basically the same info.  Routes basically just
+match stuff in-between the C</>'s in I<URIs>:
+
+=over 4
+
+=item Literals
+
+  /foo/bar
+
+This just matches I<yourapp.com/foo/bar>.  Yawn.
+
+=item C<{} :>
+
+  /:foo/:bar   ( match: /hello/world, /how/areyou )
+  /{foo}/{bar}
+
+This matches any I<URI> with two I<components> separated by a C</>.
+The C<:> and C<{}> notation are equivalent.  The C<:> looks abit nicer
+I think.  The parameters I<"foo"> and I<"bar"> are passed to the
+matching route's code inside a hash.
+
+=item C<*>
+
+  /foo/*          ( match: /foo/bar, /foo/barbaz, /foo/bar/etc/etc )
+  /foo/*.pl/runme ( match: /foo/bar/baz/cgi.pl/runme, /foo/cgi.pl/runme )
+
+=back
+
+* matches anything, including forward-slashes (C</>).  It is greedy
+because it is equivalent to the C<(.+)> regexp.
+
+=item 
+
+=head2 Route Parameters
+
+=head3 Named Parameters
+
+Named route parameters are available to the matching code via the
+C<%Prm> package variable.  The key matches the name of the parameter
+specified by the route syntax.  The value is the string used by the
+actual URI.
+
+=head3 Unnamed Parameters
+
+Unnamed parameters are those I<URI> components which are matched using
+a C<*> pattern matcher.  They are available as an arrayref stored in
+C<$Prm{'splat'}> but this will change in the future.
 
 =head2 Package Variables
 
@@ -306,11 +398,62 @@ A few package variables are created inside the caller's (that's you!)
 namespace.  This is so they can be used inside any of the router
 response blocks.
 
+=head1 REQUESTS
+
+The usual HTTP I<POST> and I<GET> parameters are still available.  You
+can access them easily using the well known I<CGI.pm> C<param()>
+method.
+
+The C<param()> method is available on the L<Peu::Req> object,
+which is sneakily stored in the C<$Req> package variable when you load
+I<Peu>.  All the other relevant information about the request is
+available in the object.
+
+BTW: The L<Peu::Req> object is really just a wafer-thin wrapper around
+the L<Plack::Request> object.  It's also shorter to type.  Great
+success!
+
+=head1 RESPONSES
+
+
+
+=head1 IMPORT SUMMARY
+
+The following variables subroutines and variables are imported into
+the calling namespace when you execute C<use Peu;>:
+
+=head2 Subroutines
+
+There aren't very many of these bad-boys imported.
+
 =over 4
 
-=item $Res - A Peu::Res (same as L<Plack::Response>) object.
+=item C<ATTRIB>
 
-=item $Req - A Peu::Req (same as L<Plack::Request>) object.
+  ATTRIB 'NAME' => sub { my ($argstr, $store_ref) = @_; ... };
+
+This handy doo-dad lets you define new attributes that you can use
+in your C<sub> route definition.
+
+=over 4
+
+=item Parameters:
+
+=over 4
+
+=item 
+
+
+=over 4
+
+=item $Res
+
+A Peu::Res (same as L<Plack::Response>) object.  This represents
+the response YOU are going to give to the client.
+
+=item $Req
+
+A Peu::Req (same as L<Plack::Request>) object.
 
 =item %Prm - Route parameters, if you have specified any.
 
