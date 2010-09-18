@@ -241,6 +241,27 @@ END_HTML
     };
     $liason->( 'CFG' => $EX_cfg );
 
+    my $EX_fwd = sub {
+        Carp::croak 'You must supply a controller (sub) name as argument'
+            unless @_ > 0;
+
+        my ($name, $params_ref) = @_;
+        Carp::croak 'Parameters to pass must be given as a hashref'
+            if $params_ref && ref $params_ref ne 'HASH';
+
+        my $c_ref = $liason->( $name );
+        Carp::croak qq{'$name' is not the name of a controller (sub)}
+            unless ref $c_ref eq 'CODE';
+
+        # Store our provided parameters inside the $Prm variable.
+        for my $key ( keys %$params_ref ) {
+            $V_route_params->param( $key, $params_ref->{ $key } );
+        }
+
+        return $c_ref->();
+    };
+    $liason->( 'FWD' => $EX_fwd );
+
     ######################################################################
     # COMMON EXTENSIONS
     #---------------------------------------------------------------------
