@@ -250,7 +250,7 @@ END_HTML
                         'liason' => $liason,
                         'attrib' => \&ATTRIB, );
 
-    Peu::Ext::View->new( \%ext_methods )->run();
+    Peu::Ext::View->new( \%ext_methods )->setup();
 
     return;
 }

@@ -7,7 +7,7 @@ use parent qw(Peu::Ext);
 
 my $DEFAULT_BASEPATH = 'tt';
 
-sub run
+sub setup
 {
     my ($self, @args) = @_;
 
