@@ -1,3 +1,3 @@
 use Peu;
-sub hi :ANY(/) { "Hello, World!" }
+sub HI :ANY(/) { "Hello, World!" }
 FIN
