@@ -2,9 +2,7 @@ package Peu::Res;
 
 use warnings;
 use strict;
-use base qw(Plack::Response);
-
-use Carp qw();
+use parent qw(Plack::Response);
 
 sub as_aref
 {
